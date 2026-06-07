@@ -24,6 +24,7 @@ blogger_post_id: '7778441109523862075'
 blogger_url: https://pawsknowhow.blogspot.com/
 blogger_status: DRAFT
 hero_image_embedded: true
+hero_image_url: https://cdn.jsdelivr.net/gh/GogoCompanyR/pawsknowhow-automation@main/content/images/border-collie.jpg
 ---
 
 If you've ever watched a Border Collie work a field — that low, fluid crouch, those piercing eyes locked on a flock — you've witnessed one of the most remarkable sights in the canine world. This is a dog built to think, move and problem-solve all day long. And whether you're already smitten or simply curious, getting to know the Border Collie properly is the best way to decide if this clever, energetic pup belongs in your home.

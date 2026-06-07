@@ -22,6 +22,7 @@ from __future__ import annotations
 import argparse
 import os
 import re
+import subprocess
 import sys
 from html import escape
 from pathlib import Path
@@ -29,9 +30,9 @@ from pathlib import Path
 from dotenv import load_dotenv
 
 try:
-    from _common import APPROVED, PUBLISHED, dump_post, load_post
+    from _common import ROOT, APPROVED, PUBLISHED, dump_post, load_post
 except ImportError:  # pragma: no cover
-    from scripts._common import APPROVED, PUBLISHED, dump_post, load_post
+    from scripts._common import ROOT, APPROVED, PUBLISHED, dump_post, load_post
 
 BLOGGER_SCOPE = "https://www.googleapis.com/auth/blogger"
 
@@ -260,6 +261,55 @@ def _approved_files(selector: str | None) -> list[Path]:
     return files
 
 
+def _git(args: list[str], cwd: Path) -> subprocess.CompletedProcess:
+    return subprocess.run(["git", *args], cwd=str(cwd), capture_output=True, text=True)
+
+
+def _commit_and_push_images() -> None:
+    """Commit & push new/changed hero images so jsDelivr can serve them.
+
+    Best-effort and self-contained: if this isn't a git repo, has no 'origin'
+    remote, has nothing new to push, or the push fails (e.g. auth not set up), it
+    warns and returns without affecting the publish result. Set AUTO_PUSH_IMAGES=0
+    to skip entirely (e.g. if you push on your own schedule).
+    """
+    if os.getenv("AUTO_PUSH_IMAGES", "1").lower() not in ("1", "true", "yes", "on"):
+        return
+
+    img_dir = os.getenv("IMAGE_OUTPUT_DIR", "content/images")
+
+    if _git(["rev-parse", "--is-inside-work-tree"], ROOT).stdout.strip() != "true":
+        print("  [GIT] not a git repo — commit/push content/images/ yourself")
+        return
+    if _git(["remote", "get-url", "origin"], ROOT).returncode != 0:
+        print("  [GIT] no 'origin' remote — skipping image push")
+        return
+
+    status = _git(["status", "--porcelain", "--", img_dir], ROOT).stdout.strip()
+    if not status:
+        print("  [GIT] hero images already up to date — nothing to push")
+        return
+
+    changed = sorted({line[3:].split("/")[-1] for line in status.splitlines()})
+    _git(["add", "--", img_dir], ROOT)
+    commit = _git(
+        ["commit", "-m", "Add/update hero images: " + ", ".join(changed), "--", img_dir],
+        ROOT,
+    )
+    if commit.returncode != 0:
+        print(f"  [GIT] commit failed: {commit.stderr.strip()}")
+        return
+
+    branch = _git(["rev-parse", "--abbrev-ref", "HEAD"], ROOT).stdout.strip() or "main"
+    push = _git(["push", "origin", branch], ROOT)
+    if push.returncode != 0:
+        tail = (push.stderr.strip().splitlines() or [""])[-1]
+        print(f"  [GIT] push failed (commit saved locally): {tail}")
+        print("        Run `git push` manually once GitHub auth is configured.")
+        return
+    print(f"  [GIT] pushed {len(changed)} image(s) to origin/{branch}: {', '.join(changed)}")
+
+
 def main() -> int:
     load_dotenv()
     parser = argparse.ArgumentParser(description="Publish approved drafts to Blogger.")
@@ -312,6 +362,9 @@ def main() -> int:
         except Exception as exc:  # noqa: BLE001 — surface any API error per-file
             print(f"ERROR publishing {path.name}: {exc}", file=sys.stderr)
             exit_code = 1
+
+    # Push any newly-exported hero images so jsDelivr can serve them.
+    _commit_and_push_images()
     return exit_code
 
 
